@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Platforms>x64</Platforms>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <AssemblyName>BackgroundFpsLimiter.MCM</AssemblyName>
+    <RootNamespace>BackgroundFpsLimiter</RootNamespace>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Bannerlord.ReferenceAssemblies.Core" Version="1.4.6.*" PrivateAssets="all" IncludeAssets="compile" />
+    <!-- Compile-only against the Bannerlord.MCM NuGet (ships the same MCMv5.dll the installed
+         module provides). PrivateAssets=all -> not shipped; MCM loads as its own module at
+         runtime. Avoids a machine-specific HintPath so the project builds in CI too. -->
+    <PackageReference Include="Bannerlord.MCM" Version="5.9.2" PrivateAssets="all" IncludeAssets="compile" />
+  </ItemGroup>
+
+  <!-- Private=true: the core dll is copied into this project's output dir so a single
+       bl-deploy call (from ..\Directory.Build.targets, gated on this project) ships both
+       BackgroundFpsLimiter.dll and BackgroundFpsLimiter.MCM.dll under one watcher. -->
+  <ItemGroup>
+    <ProjectReference Include="..\BackgroundFpsLimiter\BackgroundFpsLimiter.csproj">
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

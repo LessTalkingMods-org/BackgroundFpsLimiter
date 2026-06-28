@@ -1,0 +1,77 @@
+name: Build & Publish
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish to Nexus (e.g. 1.0.1). Defaults to the module Version."
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Build the .MCM project: it builds the core project transitively and (ProjectReference
+      # Private=true) copies the core dll into its own output, so both dlls end up in one folder.
+      - name: Build (Release)
+        run: dotnet build src/BackgroundFpsLimiter.MCM/BackgroundFpsLimiter.MCM.csproj -c Release -p:Platform=x64 -p:DeployToGameAfterBuild=false
+
+      - name: Assemble module folder
+        shell: pwsh
+        run: |
+          $out   = "src/BackgroundFpsLimiter.MCM/bin/x64/Release"
+          $stage = "staging/BackgroundFpsLimiter"
+          $bin   = "$stage/bin/Win64_Shipping_Client"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Copy-Item "$out/BackgroundFpsLimiter.dll" $bin
+          Copy-Item "$out/BackgroundFpsLimiter.MCM.dll" $bin
+          Copy-Item "src/BackgroundFpsLimiter/_Module/SubModule.xml" $stage
+          Compress-Archive -Path "staging/BackgroundFpsLimiter" -DestinationPath "BackgroundFpsLimiter.zip" -Force
+          Get-ChildItem -Recurse staging | ForEach-Object { $_.FullName }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackgroundFpsLimiter
+          path: BackgroundFpsLimiter.zip
+
+      # ---- Nexus publish: only on a GitHub Release or manual dispatch, and only once
+      #      the NEXUS_FILE_ID repo variable has been set (after the mod page exists). ----
+      - name: Resolve version
+        if: ${{ (github.event_name == 'release' || github.event_name == 'workflow_dispatch') && vars.NEXUS_FILE_ID != '' }}
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "${{ github.event.release.tag_name }}" }
+          $v = $v -replace '^v',''
+          if ([string]::IsNullOrWhiteSpace($v)) { throw "No version resolved." }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload to Nexus Mods
+        if: ${{ (github.event_name == 'release' || github.event_name == 'workflow_dispatch') && vars.NEXUS_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.8
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUS_FILE_ID }}
+          filename: BackgroundFpsLimiter.zip
+          version: ${{ steps.ver.outputs.version }}
+          display_name: BackgroundFpsLimiter ${{ steps.ver.outputs.version }}
+          category: main
+          archive_existing_version: "true"

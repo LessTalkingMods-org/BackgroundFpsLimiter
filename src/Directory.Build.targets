@@ -1,0 +1,43 @@
+<Project>
+
+  <!-- Shared by both the core (BUTR SDK) and the .MCM (Microsoft.NET.Sdk) projects (found by
+       MSBuild's upward search for Directory.Build.targets).
+
+       Redefining PostBuildCheckForVariables with an empty body suppresses the BUTR SDK's
+       "'GameFolder' links to a non existing folder" warning (the core project uses a fake
+       GameFolder to disable the SDK's lock-prone auto-copy; we deploy via bl-deploy.ps1).
+       Harmless for the .MCM project, which has no such SDK target. -->
+  <Target Name="PostBuildCheckForVariables" />
+
+  <PropertyGroup>
+    <DeployToGameAfterBuild Condition="'$(DeployToGameAfterBuild)' == ''">true</DeployToGameAfterBuild>
+    <BlDeployScript Condition="'$(BlDeployScript)' == ''">D:\Claude Code Workspaces\Bannerlord\scripts\bl-deploy.ps1</BlDeployScript>
+    <DeployModuleDir Condition="'$(DeployModuleDir)' == ''">D:\SteamLibrary\steamapps\common\Mount &amp; Blade II Bannerlord\Modules\BackgroundFpsLimiter</DeployModuleDir>
+  </PropertyGroup>
+
+  <!-- Deploy AFTER the .MCM project builds: its output dir holds BOTH the core dll (pulled in
+       by the ProjectReference Private=true) and the MCM dll, so a single lock-safe bl-deploy
+       call ships both under one watcher / one -Retry plan. The core BUTR project does not
+       deploy itself (this target is gated on the .MCM project name). SubModule.xml is not held
+       open by the running game, so it is copied directly. -->
+  <Target Name="DeployToGame" AfterTargets="Build"
+          Condition="'$(MSBuildProjectName)' == 'BackgroundFpsLimiter.MCM' And '$(DeployToGameAfterBuild)' == 'true'">
+    <Message Importance="high" Text="Deploying BackgroundFpsLimiter -> $(DeployModuleDir)" />
+
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)BackgroundFpsLimiter\_Module\SubModule.xml"
+          DestinationFolder="$(DeployModuleDir)" ContinueOnError="true" />
+
+    <!-- Bin: locked while the game runs -> lock-safe self-completing deploy. -Command (not
+         -File) so the comma builds a PowerShell string[] for -Source. -->
+    <Exec IgnoreExitCode="true"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;&amp; '$(BlDeployScript)' -Source '$(TargetDir)*.dll','$(TargetDir)*.pdb' -Dest '$(DeployModuleDir)\bin\Win64_Shipping_Client' -Label 'BackgroundFpsLimiter'; exit $LASTEXITCODE&quot;">
+      <Output TaskParameter="ExitCode" PropertyName="_DeployExit" />
+    </Exec>
+
+    <Message  Condition="'$(_DeployExit)' == '0'" Importance="high" Text="bl-deploy: BackgroundFpsLimiter deployed." />
+    <Message  Condition="'$(_DeployExit)' == '3'" Importance="high" Text="bl-deploy: game is open; a background watcher will finish the copy when it closes." />
+    <Warning  Condition="'$(_DeployExit)' == '2'" Text="bl-deploy: files locked and the watcher could not start. Close the game, then run scripts\bl-deploy.ps1 -Retry." />
+    <Error    Condition="'$(_DeployExit)' == '1'" Text="bl-deploy failed (exit 1) — see output above." />
+  </Target>
+
+</Project>

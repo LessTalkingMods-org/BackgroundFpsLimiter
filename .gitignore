@@ -1,0 +1,9 @@
+# Build output
+bin/
+obj/
+staging/
+
+# IDE
+.vs/
+*.user
+*.suo
