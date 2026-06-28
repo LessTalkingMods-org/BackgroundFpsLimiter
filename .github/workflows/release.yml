@@ -73,6 +73,8 @@ jobs:
           filename: BackgroundFpsLimiter.zip
           version: ${{ steps.ver.outputs.version }}
           display_name: BackgroundFpsLimiter ${{ steps.ver.outputs.version }}
+          # The GitHub Release body becomes the Nexus file-version changelog/description.
+          description: ${{ github.event.release.body }}
           category: main
           # Convention: archive ONLY on the very first release (to retire the empty placeholder
           # file the mod page was created with). After that initial publish, flip this to "false"
