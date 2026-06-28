@@ -34,6 +34,18 @@ namespace BackgroundFpsLimiter
         // True while we are actively throttling the background window.
         private static bool _throttled;
 
+        // Debounce: a momentary activation blip must NOT latch the throttle. A Bluetooth/audio
+        // device switch, a toast notification, a UAC prompt, etc. can briefly clear the OS
+        // foreground window (GetForegroundWindow returns NULL) or hand it to a transient system
+        // window. The background condition must hold continuously for this long before we throttle,
+        // so those blips no longer pin the game at the background framerate until restart.
+        private const float BackgroundDebounceSeconds = 0.75f;
+        private static float _backgroundElapsed;
+
+        // Lightweight diagnostics. We only write on throttle transitions (rare), capturing what the
+        // OS reported as the foreground window so a stuck-throttle report can be traced to its cause.
+        private static string _logPath;
+
         // The user's normal in-focus frame limiter, captured the moment we throttle so we can
         // put it back exactly on refocus. Never persisted to disk.
         private static float? _savedFrameLimiter;
@@ -54,7 +66,20 @@ namespace BackgroundFpsLimiter
             // fires on alt-tab — the very reason the game keeps rendering full-speed in the
             // background. GetForegroundWindow is a cheap syscall.
             bool inForeground = IsGameInForeground();
-            bool shouldThrottle = BfpsConfig.Enabled && !inForeground;
+            if (inForeground)
+            {
+                _backgroundElapsed = 0f;
+            }
+            else
+            {
+                _backgroundElapsed += dt;
+            }
+
+            // Throttle only after the background condition has held continuously past the debounce
+            // window. The moment the game is in the foreground again we drop to zero and un-throttle
+            // immediately (no debounce on the way back in).
+            bool shouldThrottle = BfpsConfig.Enabled && !inForeground
+                && _backgroundElapsed >= BackgroundDebounceSeconds;
 
             if (shouldThrottle != _throttled)
             {
@@ -80,6 +105,7 @@ namespace BackgroundFpsLimiter
 
         private static void OnThrottleStateChanged(bool throttle)
         {
+            DebugLog(throttle ? "THROTTLE ON" : "THROTTLE OFF");
             try
             {
                 if (throttle)
@@ -120,8 +146,14 @@ namespace BackgroundFpsLimiter
                     IntPtr fg = GetForegroundWindow();
                     if (fg == IntPtr.Zero)
                     {
-                        // No foreground window (e.g. fully minimized / locked screen) => background.
-                        return false;
+                        // No foreground window at all. This is a TRANSIENT activation-loss state
+                        // (focus changing hands, a Bluetooth/audio device switch, a notification,
+                        // the lock screen, etc.), NOT a deliberate alt-tab away from the game.
+                        // Treating it as "background" is exactly what used to pin the game at the
+                        // throttled framerate and never recover. Treat "unknown" as foreground so
+                        // we can never get stuck; a real minimize/alt-tab still reports another
+                        // window's PID below and throttles normally (after the debounce).
+                        return true;
                     }
                     GetWindowThreadProcessId(fg, out uint pid);
                     return pid == _ourPid;
@@ -160,6 +192,47 @@ namespace BackgroundFpsLimiter
         private static void OnEngineConstrainedStateChanged(bool isConstrained)
         {
             _engineConstrained = isConstrained;
+        }
+
+        // Append one line per throttle transition, including the raw foreground-window handle and
+        // its owning PID vs. ours. If the throttle ever latches again, this file pinpoints which
+        // window the OS considered foreground at the moment we decided the game was backgrounded.
+        private static void DebugLog(string what)
+        {
+            try
+            {
+                if (_logPath == null)
+                {
+                    string dir = System.IO.Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
+                    _logPath = System.IO.Path.Combine(dir, "bfps-debug.log");
+                }
+
+                string fgInfo;
+                try
+                {
+                    IntPtr fg = GetForegroundWindow();
+                    if (fg == IntPtr.Zero)
+                    {
+                        fgInfo = "fg=0x0 (none)";
+                    }
+                    else
+                    {
+                        GetWindowThreadProcessId(fg, out uint pid);
+                        fgInfo = $"fg=0x{fg.ToInt64():X} fgPid={pid}";
+                    }
+                }
+                catch
+                {
+                    fgInfo = "fg=unavailable";
+                }
+
+                File.AppendAllText(_logPath,
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {what} ourPid={_ourPid} {fgInfo} win32={_win32Available} bgElapsed={_backgroundElapsed:0.00}{Environment.NewLine}");
+            }
+            catch
+            {
+                // Diagnostics must never affect gameplay.
+            }
         }
 
         private static int ClampFps(int fps)
