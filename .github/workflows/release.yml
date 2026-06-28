@@ -74,4 +74,8 @@ jobs:
           version: ${{ steps.ver.outputs.version }}
           display_name: BackgroundFpsLimiter ${{ steps.ver.outputs.version }}
           category: main
-          archive_existing_version: "true"
+          # Convention: archive ONLY on the very first release (to retire the empty placeholder
+          # file the mod page was created with). After that initial publish, flip this to "false"
+          # so later updates replace the current file in place and never archive. This repo's
+          # initial 1.0.0 publish is done, so it stays "false".
+          archive_existing_version: "false"
