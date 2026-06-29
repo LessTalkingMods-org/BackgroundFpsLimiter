@@ -30,6 +30,13 @@ namespace BackgroundFpsLimiter
         private static bool _engineFallbackSubscribed;
         private static bool _engineConstrained;
 
+        // Throttling stays off until the game has finished booting to the main menu. The whole
+        // initial load (module/asset loading) happens before this is set, so alt-tabbing away
+        // during boot never stalls it. LoadingWindow.IsLoadingWindowActive can't cover this phase:
+        // its manager isn't created until the UI subsystem's first tick, and the main menu screen
+        // never raises the loading window itself.
+        private static bool _mainMenuReached;
+
         protected override void OnSubModuleLoad()
         {
             base.OnSubModuleLoad();
@@ -37,9 +44,23 @@ namespace BackgroundFpsLimiter
             InformationManager.DisplayMessage(new InformationMessage("Background FPS Limiter loaded.", Colors.Green));
         }
 
+        protected override void OnBeforeInitialModuleScreenSetAsRoot()
+        {
+            base.OnBeforeInitialModuleScreenSetAsRoot();
+            // Called once, when the initial module screen (the main menu) is about to become root,
+            // i.e. boot loading is done. From here on it's safe to throttle in the background.
+            _mainMenuReached = true;
+        }
+
         protected override void OnApplicationTick(float dt)
         {
             base.OnApplicationTick(dt);
+
+            // Never throttle during the initial boot-to-main-menu load.
+            if (!_mainMenuReached)
+            {
+                return;
+            }
 
             // Poll the real OS foreground window every frame. This is independent of the engine's
             // focus-lost callback, which (notably in borderless/windowed-fullscreen) often never
