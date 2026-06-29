@@ -51,8 +51,18 @@ namespace BackgroundFpsLimiter
                 return;
             }
 
+            // Never stall the main loop while the engine is on a global loading screen (save loads,
+            // scene/mission transitions). Those loads are frame-driven, so a per-frame Thread.Sleep
+            // would slow them by many times over even though nothing is being rendered for the user.
+            // Idle background throttling resumes the moment the load finishes.
+            if (LoadingWindow.IsLoadingWindowActive)
+            {
+                return;
+            }
+
             // Throttle by stalling the managed main loop. Sleeping here delays frame presentation,
-            // which caps the framerate even if VSync is on — no engine setting involved.
+            // which caps the framerate even if VSync is on — no engine setting involved. The
+            // loading-screen guard above keeps this stall from crippling background loads.
             //
             // IMPORTANT: we deliberately do NOT touch NativeOptions.FrameLimiter. The engine writes
             // its NativeOptions to disk on its own (e.g. on exit), so driving FrameLimiter to the

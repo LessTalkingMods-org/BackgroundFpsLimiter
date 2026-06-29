@@ -16,7 +16,7 @@
   <PropertyGroup>
     <ModuleId>BackgroundFpsLimiter</ModuleId>
     <ModuleName>Background FPS Limiter</ModuleName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <GameVersion>1.4.6</GameVersion>
     <!-- The SDK's auto-copy targets run independently of DisableModuleCopy and default
          GameFolder from the BANNERLORD_GAME_DIR env var, which clashes with the locked DLLs
